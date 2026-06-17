@@ -14,8 +14,36 @@ connectDB();
 
 const app = express();
 
+// =========================================================================
+// 🎛️ PRODUCTION-READY CORS SECURITY MATRIX
+// =========================================================================
+const allowedOrigins = [
+  'http://localhost:5173', // Vite Local Client
+  'http://localhost:3000', // React Common Local Client
+  'https://perfume-store-frontend-chi.vercel.app' // 🔥 AAPKA LIVE FRONTEND DOMAIN
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps, postman, or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS Security Layer Blocked Origin: ${origin}`);
+      callback(new Error('Not allowed by CORS policy infrastructure'));
+    }
+  },
+  credentials: true, // Cookies ya Auth Headers allow karne ke liye
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Pre-flight pre-routing check mapping
+
+
 // Global Middlewares
-app.use(cors());
 app.use(express.json()); // JSON payload parse karne ke liye
 
 // API Base Routes Injection
