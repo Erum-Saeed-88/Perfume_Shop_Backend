@@ -5,29 +5,35 @@ import Product from '../models/Product.js';
 // @access  Public
 export const getProducts = async (req, res) => {
   try {
-    // Sirf wahi products aayenge jo blocked nahi hain (isBlocked: false)
-    let query = { isBlocked: false };
+    // 🎯 FIX: Unblocked filters handles fields safely if 'isBlocked' is undefined/missing in database entries
+    let query = { isBlocked: { $ne: true } };
 
     // 1. Filtering by Category
-    if (req.query.category) {
+    if (req.query.category && req.query.category !== 'undefined') {
       query.category = req.query.category;
     }
 
-    let apiQuery = Product.find(query);
-
-    // 2. Sorting by Price
+    // 2. Sorting Setup
+    let sortCriteria = '-createdAt'; // Default dynamic sort by newest
     if (req.query.sort) {
-      // Example: ?sort=priceAsc (Low to High) or ?sort=priceDesc (High to Low)
-      const sortBy = req.query.sort === 'priceAsc' ? 'price' : '-price';
-      apiQuery = apiQuery.sort(sortBy);
-    } else {
-      apiQuery = apiQuery.sort('-createdAt'); // Default dynamic sort by newest
+      sortCriteria = req.query.sort === 'priceAsc' ? 'price' : '-price';
     }
 
-    const products = await apiQuery;
-    res.json(products);
+    // 🎯 FIX: Directly execution in single await pool to prevent Vercel Serverless decoupling freeze
+    const products = await Product.find(query).sort(sortCriteria);
+
+    if (!products) {
+      return res.status(200).json([]);
+    }
+
+    res.status(200).json(products);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("❌ CRITICAL DATABASE FETCH FAILURE:", error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Database pipeline breakdown!", 
+      error: error.message 
+    });
   }
 };
 
@@ -36,13 +42,10 @@ export const getProducts = async (req, res) => {
 // @access  Admin
 export const createProduct = async (req, res) => {
   try {
-    // 🎯 FIXED: Added 'gender' and 'isLatest' fields which were completely missing from destruction matrix
     const { name, brand, price, description, category, gender, isLatest, countInStock } = req.body;
 
-    // 🛠️ FILE HANDLING FIX: Detect if multer uploaded file path exists, otherwise fallback to text URL
     let finalImageUrl = req.body.image || req.body.imageUrl || "";
     if (req.file) {
-      // Agar aap standard diskStorage use kar rahe hain ya Cloudinary config
       finalImageUrl = req.file.path || req.file.location; 
     }
 
@@ -52,9 +55,9 @@ export const createProduct = async (req, res) => {
       price,
       description,
       category,
-      gender,                               // 🎯 FIXED: Saved gender route maps
-      isLatest: isLatest === 'true' || isLatest === true, // 🎯 FIXED: Form data sends strings, converted to Boolean safely
-      image: finalImageUrl,                 // 🎯 FIXED: Mapping image data to your strict database keys
+      gender,                               
+      isLatest: isLatest === 'true' || isLatest === true, 
+      image: finalImageUrl,                 
       countInStock: Number(countInStock) || 0,
     });
 
@@ -75,7 +78,6 @@ export const updateProduct = async (req, res) => {
     const product = await Product.findById(req.params.id);
 
     if (product) {
-      // 🛠️ Updating Image parameters if new asset binary is passed during updates
       let finalImageUrl = product.image;
       if (req.file) {
         finalImageUrl = req.file.path || req.file.location;
@@ -88,9 +90,9 @@ export const updateProduct = async (req, res) => {
       product.price = price || product.price;
       product.description = description || product.description;
       product.category = category || product.category;
-      product.gender = gender || product.gender; // 🎯 FIXED
-      product.isLatest = isLatest !== undefined ? (isLatest === 'true' || isLatest === true) : product.isLatest; // 🎯 FIXED
-      product.image = finalImageUrl; // 🎯 FIXED
+      product.gender = gender || product.gender; 
+      product.isLatest = isLatest !== undefined ? (isLatest === 'true' || isLatest === true) : product.isLatest; 
+      product.image = finalImageUrl; 
       product.countInStock = countInStock !== undefined ? Number(countInStock) : product.countInStock;
 
       const updatedProduct = await product.save();

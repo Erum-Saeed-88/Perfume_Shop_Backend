@@ -1,10 +1,7 @@
 import Order from '../models/Order.js';
-import stripe from '../config/stripe.js';
+import stripeInstance from '../config/stripe.js'; // Renamed for safety mapping
 import sendEmail from '../utils/sendEmail.js'; 
 
-// @desc    Create a new order (Handles COD and Stripe both)
-// @route   POST /api/orders
-// @access  Public (or Authenticated)
 export const createOrder = async (req, res) => {
   try {
     const { customerName, email, shippingAddress, orderItems, totalPrice, paymentMethod, stripeTokenId } = req.body;
@@ -32,7 +29,15 @@ export const createOrder = async (req, res) => {
       }
 
       try {
-        const charge = await stripe.charges.create({
+        // 🎯 SAFETY WRAPPER: Handle direct object or nested instance destruction
+        const stripeClient = stripeInstance.default || stripeInstance;
+        
+        // Check if charges method exists securely
+        if (!stripeClient.charges) {
+          throw new Error("Stripe SDK core charges method is undefined. Check config/stripe.js export mapping.");
+        }
+
+        const charge = await stripeClient.charges.create({
           amount: Math.round(totalPrice * 100),
           currency: 'usd',
           source: stripeTokenId,
@@ -42,7 +47,7 @@ export const createOrder = async (req, res) => {
         if (charge.status === 'succeeded') {
           isPaid = true;
           paidAt = Date.now();
-          console.log("👉 3. STRIPE CHARGE SUCCEEDED! PAYMENT STATUS MARKED AS TRUE ✅");
+          console.log("👉 3. STRIPE CHARGE SUCCEEDED! ✅");
         } else {
           return res.status(400).json({ message: 'Stripe payment failed status received' });
         }
@@ -52,21 +57,21 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // 🎯 Data Normalization: Frontend Object ko safe flat String address mein badal rahe hain
+    // Data Normalization
     let dbShippingAddress = '';
     if (typeof shippingAddress === 'object') {
-      dbShippingAddress = `${shippingAddress.address}, ${shippingAddress.city}, ZIP: ${shippingAddress.zipCode}, Phone: ${shippingAddress.phone}`;
+      dbShippingAddress = `${shippingAddress.address || ''}, ${shippingAddress.city || ''}, ZIP: ${shippingAddress.zipCode || ''}, Phone: ${shippingAddress.phone || ''}`;
     } else {
       dbShippingAddress = shippingAddress;
     }
 
-    // 🎯 Keys Normalization: Frontend data mapping safely matching the updated schema
+    // Keys Normalization
     const dbOrderItems = orderItems.map(item => ({
-      productId: String(item.product || item.productId || item._id), // Force string conversion
+      productId: String(item.product || item.productId || item._id), 
       name: item.name,
-      quantity: Number(item.qty || item.quantity), 
+      quantity: Number(item.qty || item.quantity || 1), 
       image: item.image,
-      price: Number(item.price)
+      price: Number(item.price || 0)
     }));
 
     const targetEmail = (email && email.trim() !== "") 
@@ -88,28 +93,32 @@ export const createOrder = async (req, res) => {
     const createdOrder = await order.save();
     console.log(`👉 4. ORDER SECURELY SAVED IN MONGODB! ID: ${createdOrder._id}`);
 
-    // --- STEP 3: Send Confirmation Email to the Authenticated User ---
+    // --- STEP 3: Send Confirmation Email Safely Without Await Blocking ---
     console.log(`👉 5. EMAIL DISPATCH PREPARATION... Target Recipient: "${targetEmail}"`);
 
     if (!targetEmail || targetEmail === "") {
-      console.warn("⚠️ WARNING: Email skipped entirely because target recipient email address is UNDEFINED/EMPTY!");
+      console.warn("⚠️ WARNING: Email skipped entirely because target recipient email address is EMPTY!");
     } else {
       const emailSubject = `Order Confirmed - Scentsation Premium Fragrance`;
-      const emailText = `Dear ${customerName},\n\nThank you for shopping with Scentsation! Your order has been successfully placed.\n\nOrder ID: ${createdOrder._id}\nTotal Amount: Rs. ${totalPrice.toLocaleString()}\nPayment Method: ${paymentMethod}\nPayment Status: ${isPaid ? 'Paid (Stripe Gateway)' : 'Pending Payment (COD)'}\n\nWe will ship your premium fragrance shortly!\n\nBest regards,\nScentsation Team`;
+      const emailText = `Dear ${customerName},\n\nThank you for shopping with Scentsation! Your order has been successfully placed.\n\nOrder ID: ${createdOrder._id}\nTotal Amount: $${totalPrice.toLocaleString()}\nPayment Method: ${paymentMethod}\nPayment Status: ${isPaid ? 'Paid (Stripe Gateway)' : 'Pending Payment (COD)'}\n\nWe will ship your premium fragrance shortly!\n\nBest regards,\nScentsation Team`;
 
       console.log(`📡 SMTP Handshake Engine firing up for: ${targetEmail}...`);
       
-      try {
-        await sendEmail(targetEmail, emailSubject, emailText);
-        console.log("👉 6. sendEmail FUNCTION SUCCESSFULLY COMPLETED & PASSED AWAIT LAYER ✅");
-      } catch (emailError) {
-        console.error("❌ NODEMAILER ASYNC RUNTIME CRASH:", emailError.message);
-      }
+      // 🎯 CRITICAL PRODUCTION FIX: We trigger sendEmail as an isolated async background process
+      // Iska fayda yeh hai ke agar email failure/timeout ho bhi jaye, toh order response frontend ko furan mil jayega!
+      sendEmail(targetEmail, emailSubject, emailText)
+        .then(() => console.log("👉 6. sendEmail FUNCTION SUCCESSFULLY COMPLETED ✅"))
+        .catch((emailError) => console.error("❌ NODEMAILER ASYNC RUNTIME CRASH BYPASSED SAFELY:", emailError.message));
     }
 
-    res.status(201).json(createdOrder);
+    // 🎯 IMMUTABLE SUCCESS RESPONSE RETURN MAP
+    return res.status(201).json(createdOrder);
+
   } catch (error) {
     console.error("🔥 CRITICAL ORDER ROUTE ERROR:", error.message);
-    res.status(500).json({ message: error.message });
+    // Agat headers send nahi hue tabhi error response bhejien
+    if (!res.headersSent) {
+      return res.status(500).json({ message: error.message });
+    }
   }
 };
