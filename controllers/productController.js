@@ -5,21 +5,17 @@ import Product from '../models/Product.js';
 // @access  Public
 export const getProducts = async (req, res) => {
   try {
-    // 🎯 FIX: Unblocked filters handles fields safely if 'isBlocked' is undefined/missing in database entries
     let query = { isBlocked: { $ne: true } };
 
-    // 1. Filtering by Category
     if (req.query.category && req.query.category !== 'undefined') {
       query.category = req.query.category;
     }
 
-    // 2. Sorting Setup
-    let sortCriteria = '-createdAt'; // Default dynamic sort by newest
+    let sortCriteria = '-createdAt'; 
     if (req.query.sort) {
       sortCriteria = req.query.sort === 'priceAsc' ? 'price' : '-price';
     }
 
-    // 🎯 FIX: Directly execution in single await pool to prevent Vercel Serverless decoupling freeze
     const products = await Product.find(query).sort(sortCriteria);
 
     if (!products) {
@@ -44,27 +40,43 @@ export const createProduct = async (req, res) => {
   try {
     const { name, brand, price, description, category, gender, isLatest, countInStock } = req.body;
 
+    // 🛠️ FALL-SAFE IMAGE FIELD MAPPING
     let finalImageUrl = req.body.image || req.body.imageUrl || "";
     if (req.file) {
-      finalImageUrl = req.file.path || req.file.location; 
+      finalImageUrl = req.file.path || req.file.location || ""; 
+    }
+
+    // 🛡️ SCHEMA PRE-VALIDATION CHECK
+    if (!name || !price || !category) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Crucial vectors missing! Name, Price, and Category are absolutely mandatory." 
+      });
     }
 
     const product = new Product({
       name,
-      brand,
-      price,
-      description,
+      brand: brand || "Generic Luxury",
+      price: Number(price),
+      description: description || "Premium authentic fragrance imported directly for luxury connoisseurs.",
       category,
-      gender,                               
+      gender: gender || "Unisex",                               
       isLatest: isLatest === 'true' || isLatest === true, 
       image: finalImageUrl,                 
       countInStock: Number(countInStock) || 0,
     });
 
+    // 🎯 CRITICAL ACCURACY: Await secure engine transaction commitment
     const createdProduct = await product.save();
-    res.status(201).json(createdProduct);
+    
+    return res.status(201).json({
+      success: true,
+      message: "Product securely written to live storage engine!",
+      product: createdProduct
+    });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error("❌ BACKEND TRANSACTION ERROR:", error.message);
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -74,7 +86,6 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { name, brand, price, description, category, gender, isLatest, countInStock } = req.body;
-
     const product = await Product.findById(req.params.id);
 
     if (product) {
