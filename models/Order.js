@@ -9,7 +9,6 @@ const orderSchema = new mongoose.Schema({
     type: String, 
     required: true 
   },
-  // 🎯 NOTE: Frontend handles object payload string formats seamlessly
   shippingAddress: { 
     type: String, 
     required: true 
@@ -17,7 +16,7 @@ const orderSchema = new mongoose.Schema({
   orderItems: [
     {
       productId: { 
-        type: String, // 🎯 FIXED: Accepts raw string formats like "m_bs_1" perfectly
+        type: String, // 🎯 FIXED: ObjectId se badal kar String kar diya taake "m_bs_1" jaise format accept ho sakein
         required: true 
       },
       name: { 
@@ -44,13 +43,12 @@ const orderSchema = new mongoose.Schema({
   paymentMethod: { 
     type: String, 
     required: true, 
-    enum: ['COD', 'Stripe'], // 💳 Accepts both Cash on Delivery and Credit Cards
-    default: 'Stripe'
+    enum: ['COD', 'Stripe'] 
   },
   isPaid: { 
     type: Boolean, 
     required: true, 
-    default: false // COD orders will always default to false until delivered
+    default: false 
   },
   paidAt: { 
     type: Date 
